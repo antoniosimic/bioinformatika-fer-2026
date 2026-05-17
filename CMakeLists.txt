@@ -21,5 +21,7 @@ add_library(filter_lib
 )
 
 add_executable(test_bloom tests/test_bloom.cpp)
-
 target_link_libraries(test_bloom filter_lib)
+
+add_executable(test_cuckoo tests/test_cuckoo.cpp)
+target_link_libraries(test_cuckoo filter_lib)
