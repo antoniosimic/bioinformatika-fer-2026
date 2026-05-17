@@ -88,6 +88,18 @@ bool BambooFilter::BucketContains(size_t seg, size_t b, uint16_t tag) const {
     return false;
 }
 
+bool BambooFilter::DeleteFromBucket(size_t seg, size_t b, uint16_t tag) {
+    auto& slots = segments_[seg];
+    size_t base = b * kTagsPerBucket;
+    for (int i = 0; i < kTagsPerBucket; i++) {
+        if (slots[base + i] == tag) {
+            slots[base + i] = 0;
+            return true;
+        }
+    }
+    return false;
+}
+
 bool BambooFilter::TryInsertOnce(uint16_t tag, size_t s, size_t b1) {
     size_t b2 = AltBucket(b1, tag);
     if (InsertIntoBucket(s, b1, tag) ||
@@ -164,6 +176,72 @@ void BambooFilter::SplitSegment() {
         // Completed a full doubling round — promote to the next level.
         level_++;
         split_pointer_ = 0;
+    }
+}
+
+bool BambooFilter::Delete(const std::string& key) {
+    HashTag h = Hash64(key);
+    uint16_t tag = MakeTag(h.h1);
+    size_t s = SegmentIndex(h.h1);
+    size_t b1 = BucketIndex(h.h1);
+    size_t b2 = AltBucket(b1, tag);
+    if (DeleteFromBucket(s, b1, tag) ||
+        DeleteFromBucket(s, b2, tag)) {
+        num_items_--;
+        if (LoadFactor() < kShrinkThreshold) {
+            MergeSegment();
+        }
+        return true;
+    }
+    return false;
+}
+
+void BambooFilter::MergeSegment() {
+    // Never shrink below the initial allocation.
+    if (segments_.size() <= initial_num_segments_) return;
+
+    // The last segment is always the most recently split-off buddy. Its
+    // parent (target of the merge) is the segment we split FROM in that
+    // round. With BaseSegments = N0 << level_ and a fresh split_pointer_
+    // value, the parent index is (split_pointer_ - 1) at the current level,
+    // wrapping back into the previous level when split_pointer_ == 0.
+    bool will_decrement_level = (split_pointer_ == 0);
+    if (will_decrement_level && level_ == 0) return;  // already at base
+
+    size_t source = segments_.size() - 1;
+    size_t target;
+    if (will_decrement_level) {
+        // The buddy we're absorbing is from the previous round.
+        target = (BaseSegments() / 2) - 1;
+    } else {
+        target = split_pointer_ - 1;
+    }
+
+    // Refuse to merge if the combined load is uncomfortably close to a
+    // single segment's capacity — we'd just expand again immediately.
+    size_t src_count = 0, dst_count = 0;
+    for (auto t : segments_[source]) if (t != 0) src_count++;
+    for (auto t : segments_[target]) if (t != 0) dst_count++;
+    size_t cap = kBucketsPerSegment * kTagsPerBucket;
+    if (src_count + dst_count > static_cast<size_t>(cap * 0.95)) return;
+
+    // Move tags back into the parent, preserving bucket-within-segment.
+    for (size_t b = 0; b < kBucketsPerSegment; b++) {
+        size_t base = b * kTagsPerBucket;
+        for (int slot = 0; slot < kTagsPerBucket; slot++) {
+            uint16_t tag = segments_[source][base + slot];
+            if (tag == 0) continue;
+            TryInsertOnce(tag, target, b);
+            segments_[source][base + slot] = 0;
+        }
+    }
+
+    segments_.pop_back();
+    if (will_decrement_level) {
+        level_--;
+        split_pointer_ = BaseSegments() - 1;
+    } else {
+        split_pointer_--;
     }
 }
 
