@@ -17,6 +17,7 @@ add_library(filter_lib
     src/murmurhash3.cpp
     src/hash.cpp
     src/bloom_filter.cpp
+    src/cuckoo_filter.cpp
 )
 
 add_executable(test_bloom tests/test_bloom.cpp)
