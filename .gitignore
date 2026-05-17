@@ -1,0 +1,29 @@
+# Build directories
+build/
+cmake-build-*/
+
+# Compiled objects
+*.o
+*.obj
+*.exe
+
+# Data files (large)
+data/*.fasta
+data/*.fasta.gz
+
+# Benchmark output
+*.csv
+results/
+
+# Python
+__pycache__/
+*.pyc
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
