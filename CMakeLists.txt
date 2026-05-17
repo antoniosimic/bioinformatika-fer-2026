@@ -18,3 +18,7 @@ add_library(filter_lib
     src/hash.cpp
     src/bloom_filter.cpp
 )
+
+add_executable(test_bloom tests/test_bloom.cpp)
+
+target_link_libraries(test_bloom filter_lib)
