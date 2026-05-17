@@ -29,3 +29,6 @@ target_link_libraries(test_cuckoo filter_lib)
 
 add_executable(test_bamboo tests/test_bamboo.cpp)
 target_link_libraries(test_bamboo filter_lib)
+
+add_executable(benchmark_runner benchmark/benchmark_main.cpp)
+target_link_libraries(benchmark_runner filter_lib)
