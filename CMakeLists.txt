@@ -12,3 +12,8 @@ if(NOT CMAKE_BUILD_TYPE)
 endif()
 
 include_directories(${PROJECT_SOURCE_DIR}/src)
+
+add_library(filter_lib
+    src/murmurhash3.cpp
+    src/hash.cpp
+)
