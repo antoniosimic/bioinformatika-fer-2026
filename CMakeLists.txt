@@ -26,3 +26,6 @@ target_link_libraries(test_bloom filter_lib)
 
 add_executable(test_cuckoo tests/test_cuckoo.cpp)
 target_link_libraries(test_cuckoo filter_lib)
+
+add_executable(test_bamboo tests/test_bamboo.cpp)
+target_link_libraries(test_bamboo filter_lib)
