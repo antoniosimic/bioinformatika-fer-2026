@@ -46,7 +46,11 @@ class RefBamboo {
     explicit RefBamboo(std::size_t expected_items) {
         std::uint32_t cap = 1;
         while (cap < expected_items) cap <<= 1;
-        if (cap < 4) cap = 4;
+        // Reference impl requires capacity >= 4096 so that
+        // INIT_TABLE_BITS (= ceil(log2(capacity/4))) is at least
+        // BUCKETS_PER_SEG (= 10). Below that, NUM_SEG_BITS underflows
+        // (it's unsigned) and the segment allocation loop is UB.
+        if (cap < 4096) cap = 4096;
         impl_ = new BambooFilter(cap, /*split_condition_param=*/2);
     }
     ~RefBamboo() { delete impl_; }
