@@ -1,8 +1,9 @@
 // Author: Antonio Šimić
 // Bamboo Filter (Wang et al. 2022) — a Cuckoo-style AMQ filter that supports
-// smooth, incremental resizing. This commit lays out the structure but does
-// NOT yet implement resizing — the filter is fixed-size for now. Expansion
-// is added in the next commit; deletion + shrinkage in the one after.
+// smooth, incremental resizing. This file now also supports expansion via
+// SplitSegment: one segment at a time is split, moving tags whose level-th
+// bit is 1 into a freshly-allocated buddy segment. Deletion and shrinkage
+// are added in the next commit.
 //
 // Storage is organised as a vector of fixed-size segments. Each segment
 // holds `kBucketsPerSegment` buckets, each bucket holds `kTagsPerBucket`
@@ -56,6 +57,8 @@ class BambooFilter {
 
  private:
     static constexpr int kMaxKicks = 500;
+    // Auto-split when the filter exceeds this overall load factor.
+    static constexpr double kExpandThreshold = 0.9;
 
     // Number of segments before any splits in the current round.
     size_t BaseSegments() const {
@@ -76,6 +79,16 @@ class BambooFilter {
 
     bool InsertIntoBucket(size_t seg, size_t b, uint16_t tag);
     bool BucketContains(size_t seg, size_t b, uint16_t tag) const;
+
+    // One attempt to place `tag` into segment `s`, starting at bucket b1
+    // and falling back to the alt bucket / cuckoo eviction. Returns false
+    // if the segment is full (caller can then split and retry).
+    bool TryInsertOnce(uint16_t tag, size_t s, size_t b1);
+
+    // Append a buddy segment for segments_[split_pointer_] and move tags
+    // whose `level_`-th bit is 1 into it. Advances split_pointer_; if it
+    // wraps past BaseSegments(), promotes the filter to the next level.
+    void SplitSegment();
 
     // segments_[s] is a flat vector of kBucketsPerSegment * kTagsPerBucket
     // tags. Bucket b within that segment occupies indices [b*4, b*4 + 4).
