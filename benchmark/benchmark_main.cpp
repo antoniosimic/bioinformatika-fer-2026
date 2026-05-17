@@ -1,12 +1,13 @@
 // Author: Antonio Šimić
-// Benchmark our Bamboo Filter on synthetic random DNA. For each combination
-// of (sequence length, k), generate a random DNA "genome", extract its
-// k-mers, insert them into the filter, then measure:
+// Benchmark our Bamboo Filter on synthetic random DNA and (optionally) on
+// the E. coli K-12 MG1655 reference genome. For each combination of
+// (length or genome, k), extract every k-mer via sliding window, insert
+// them into the filter, then measure:
 //   - insert time
 //   - lookup time on inserted k-mers (no false negatives expected)
 //   - lookup time + false positive rate on random non-member k-mers
 //   - memory usage and bits-per-item
-// Output is one CSV row per (length, k). Progress goes to stderr.
+// Output is one CSV row per measurement; progress goes to stderr.
 
 #include <algorithm>
 #include <chrono>
@@ -17,6 +18,7 @@
 #include <vector>
 
 #include "bamboo_filter.h"
+#include "fasta_reader.h"
 #include "kmer.h"
 
 class Timer {
@@ -45,20 +47,60 @@ static std::vector<size_t> ParseList(const std::string& s) {
 static void PrintUsage(const char* prog) {
     std::cerr << "Usage: " << prog
               << " --output <csv_file>"
+              << " [--fasta <genome.fna>]"
               << " [--synthetic-lengths L1,L2,...]"
               << " [--k K1,K2,...]\n";
 }
 
-// Heuristic: start with enough segments to fit roughly half of the expected
-// items without splitting, so we observe a few smooth-resize rounds during
-// the benchmark rather than dozens.
-static size_t PickInitialSegments(size_t n_items) {
-    size_t s = n_items / 2048;
-    return s < 4 ? 4 : s;  // BambooFilter rounds this up to a power of two
+// One (filter, source, length, k) run — used by both the synthetic loop and
+// the E. coli loop so we don't duplicate the timing + CSV-writing code.
+static void RunOne(const std::vector<std::string>& kmers,
+                   size_t k, size_t seq_length,
+                   const std::string& data_source,
+                   std::ofstream& csv) {
+    BambooFilter bf(kmers.size() / 2048 < 4 ? 4 : kmers.size() / 2048);
+
+    Timer t_ins;
+    for (const auto& km : kmers) bf.Insert(km);
+    double insert_ms = t_ins.ElapsedMs();
+
+    Timer t_pos;
+    size_t found = 0;
+    for (const auto& km : kmers) if (bf.Lookup(km)) found++;
+    double lookup_pos_ms = t_pos.ElapsedMs();
+
+    size_t num_negs = std::min<size_t>(kmers.size(), 100000);
+    auto negs = KmerUtils::GenerateTrueNegatives(k, num_negs, kmers);
+
+    Timer t_neg;
+    size_t fp = 0;
+    for (const auto& km : negs) if (bf.Lookup(km)) fp++;
+    double lookup_neg_ms = t_neg.ElapsedMs();
+    double fpr = negs.empty()
+        ? 0.0
+        : static_cast<double>(fp) / negs.size();
+
+    double bits = kmers.empty()
+        ? 0.0
+        : static_cast<double>(bf.MemoryUsage()) * 8.0 / kmers.size();
+
+    csv << "Bamboo," << data_source << "," << k << "," << seq_length << ","
+        << kmers.size() << "," << insert_ms << ","
+        << lookup_pos_ms << "," << lookup_neg_ms << ","
+        << fpr << "," << bf.MemoryUsage() << ","
+        << bits << "\n";
+    csv.flush();
+
+    std::cerr << "  inserted=" << kmers.size()
+              << " found=" << found
+              << " fpr=" << fpr
+              << " mem=" << bf.MemoryUsage()
+              << " bits/item=" << bits << "\n";
 }
 
 int main(int argc, char* argv[]) {
     std::string output_file;
+    std::string fasta_path;
     std::vector<size_t> lengths = {1000, 10000, 100000, 1000000};
     std::vector<size_t> ks = {10, 20, 50, 100, 200};
 
@@ -66,6 +108,8 @@ int main(int argc, char* argv[]) {
         std::string arg = argv[i];
         if (arg == "--output" && i + 1 < argc) {
             output_file = argv[++i];
+        } else if (arg == "--fasta" && i + 1 < argc) {
+            fasta_path = argv[++i];
         } else if (arg == "--synthetic-lengths" && i + 1 < argc) {
             lengths = ParseList(argv[++i]);
         } else if (arg == "--k" && i + 1 < argc) {
@@ -91,10 +135,9 @@ int main(int argc, char* argv[]) {
         << "insert_ms,lookup_pos_ms,lookup_neg_ms,"
         << "false_positive_rate,memory_bytes,bits_per_item\n";
 
+    // 1. Synthetic random DNA.
     for (size_t length : lengths) {
-        // Random "genome" — reused across all k values for this length.
         std::string sequence = KmerUtils::GenerateRandom(length, 1)[0];
-
         for (size_t k : ks) {
             if (k >= length) {
                 std::cerr << "  Skip k=" << k << " for length=" << length
@@ -103,54 +146,28 @@ int main(int argc, char* argv[]) {
             }
             std::cerr << "Synthetic length=" << length
                       << " k=" << k << "\n";
-
             auto kmers = KmerUtils::Extract(sequence, k);
+            RunOne(kmers, k, length, "synthetic", csv);
+        }
+    }
 
-            BambooFilter bf(PickInitialSegments(kmers.size()));
+    // 2. E. coli genome (if --fasta was supplied).
+    if (!fasta_path.empty()) {
+        std::cerr << "Reading FASTA: " << fasta_path << "\n";
+        std::string genome;
+        try {
+            genome = FastaReader::Read(fasta_path);
+        } catch (const std::exception& ex) {
+            std::cerr << "FASTA read failed: " << ex.what() << "\n";
+            return 1;
+        }
+        std::cerr << "Genome length: " << genome.size() << " bp\n";
 
-            Timer t_ins;
-            for (const auto& km : kmers) bf.Insert(km);
-            double insert_ms = t_ins.ElapsedMs();
-
-            Timer t_pos;
-            size_t found = 0;
-            for (const auto& km : kmers) {
-                if (bf.Lookup(km)) found++;
-            }
-            double lookup_pos_ms = t_pos.ElapsedMs();
-
-            // Non-member queries — capped so large k-mer sets don't dominate.
-            size_t num_negs = std::min<size_t>(kmers.size(), 100000);
-            auto negs =
-                KmerUtils::GenerateTrueNegatives(k, num_negs, kmers);
-
-            Timer t_neg;
-            size_t fp = 0;
-            for (const auto& km : negs) {
-                if (bf.Lookup(km)) fp++;
-            }
-            double lookup_neg_ms = t_neg.ElapsedMs();
-            double fpr = negs.empty()
-                ? 0.0
-                : static_cast<double>(fp) / negs.size();
-
-            double bits = kmers.empty()
-                ? 0.0
-                : static_cast<double>(bf.MemoryUsage()) * 8.0
-                      / kmers.size();
-
-            csv << "Bamboo,synthetic," << k << "," << length << ","
-                << kmers.size() << "," << insert_ms << ","
-                << lookup_pos_ms << "," << lookup_neg_ms << ","
-                << fpr << "," << bf.MemoryUsage() << ","
-                << bits << "\n";
-            csv.flush();
-
-            std::cerr << "  inserted=" << kmers.size()
-                      << " found=" << found
-                      << " fpr=" << fpr
-                      << " mem=" << bf.MemoryUsage()
-                      << " bits/item=" << bits << "\n";
+        for (size_t k : ks) {
+            if (k >= genome.size()) continue;
+            std::cerr << "E. coli k=" << k << "\n";
+            auto kmers = KmerUtils::Extract(genome, k);
+            RunOne(kmers, k, genome.size(), "ecoli", csv);
         }
     }
 
