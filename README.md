@@ -15,13 +15,14 @@ Filter implementation.
 ---
 
 ## Repository structure
-bamboo-filter/
+
+bioinformatika-fer-2026/
 ├── src/                  C++ library (filters + utilities)
 ├── tests/                Unit tests (Bloom, Cuckoo, Bamboo)
 ├── benchmark/            Benchmark harness + CSV output
 ├── reference/            Wang et al. reference impl wrapper (Linux only)
-├── scripts/              Python(Matplotlib) plotting
-└── data/                 Genome data
+├── scripts/              Python (Matplotlib) plotting
+└── data/                 E. coli K-12 MG1655 genome (.fna)
 
 ---
 
@@ -97,7 +98,7 @@ memory_bytes, bits_per_item`
 ## Plot results
 
 ```bash
-python3 scripts/plot_results.py \
+python3 scripts/plot.py \
   --input results/results.csv \
   --output results/
 ```
@@ -126,11 +127,20 @@ incremental resizing**:
 - **Shrink** — when load drops below 40%, the last segment is merged back
   into its parent.
 
-This makes Bamboo suitable for workloads where the number of elements is
-not known in advance, such as streaming k-mer indexing.
+Unlike a standard Cuckoo Filter which requires a full rebuild to resize,
+Bamboo touches only a single segment per split or merge operation. This
+makes it suitable for workloads where the number of elements is not known
+in advance — such as streaming k-mer indexing over genomes of unknown size.
 
-For a full description of the algorithm with figures and benchmark results
-see the project documentation (`docs/dokumentacija.pdf`).
+---
+
+## Genome data
+
+The `data/` directory contains the *E. coli* K-12 MG1655 complete genome:
+
+- **File:** `GCA_000005845_2_ASM584v2_genomic.fna`
+- **Source:** NCBI Assembly — accession [GCA_000005845.2](https://www.ncbi.nlm.nih.gov/datasets/genome/GCA_000005845.2/)
+- **Length:** 4,639,675 bp
 
 ---
 
@@ -146,4 +156,6 @@ see the project documentation (`docs/dokumentacija.pdf`).
   doi:[10.1145/2674005.2674994](https://doi.org/10.1145/2674005.2674994)
 - A. Appleby. *MurmurHash3.* Public domain.
   [github.com/aappleby/smhasher](https://github.com/aappleby/smhasher)
+- NCBI. *Escherichia coli str. K-12 substr. MG1655 genome assembly ASM584v2.*
+  [https://www.ncbi.nlm.nih.gov/datasets/genome/GCA_000005845.2/](https://www.ncbi.nlm.nih.gov/datasets/genome/GCA_000005845.2/)
 - Reference implementation: [github.com/wanghanchengchn/bamboofilters](https://github.com/wanghanchengchn/bamboofilters)
