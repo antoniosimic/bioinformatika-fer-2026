@@ -25,31 +25,6 @@ class KmerUtils {
         return kmers;
     }
 
-    // Returns a random sample of n k-mers from sequence.
-    // Useful when the full set is too large (e.g. 4.6M k-mers from E. coli).
-    static std::vector<std::string> Sample(const std::string& sequence,
-                                           size_t k,
-                                           size_t n,
-                                           uint32_t seed = 42) {
-        std::mt19937 rng(seed);
-
-        size_t total = sequence.size() >= k ? sequence.size() - k + 1 : 0;
-        if (total == 0) return {};
-
-        // Pick n random starting positions without replacement
-        std::vector<size_t> indices(total);
-        for (size_t i = 0; i < total; i++) indices[i] = i;
-        std::shuffle(indices.begin(), indices.end(), rng);
-        if (n < indices.size()) indices.resize(n);
-
-        std::vector<std::string> kmers;
-        kmers.reserve(n);
-        for (size_t i : indices) {
-            kmers.push_back(sequence.substr(i, k));
-        }
-        return kmers;
-    }
-
     // Generates n random DNA strings of length k.
     // Used as the negative query set — these are probably not in the genome
     // so any hit is a false positive (with very high probability).

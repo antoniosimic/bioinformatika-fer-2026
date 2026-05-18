@@ -52,15 +52,4 @@ class FastaReader {
         size_t count_g;
         size_t count_c;
     };
-
-    static Stats GetStats(const std::string& sequence) {
-        Stats s = {sequence.size(), 0, 0, 0, 0};
-        for (char c : sequence) {
-            if      (c == 'A') s.count_a++;
-            else if (c == 'T') s.count_t++;
-            else if (c == 'G') s.count_g++;
-            else if (c == 'C') s.count_c++;
-        }
-        return s;
-    }
 };
