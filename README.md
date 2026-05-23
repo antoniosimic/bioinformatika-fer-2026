@@ -6,6 +6,8 @@ smooth, incremental expansion and shrinkage.
 
 Built for the FER course *Bioinformatika 1* (2025./2026.), task (2).
 
+Subject page link: https://www.fer.unizg.hr/predmet/bio1
+
 **Goal.** Search for random k-mers (k ∈ {10, 20, 50, 100, 200}) in the
 *E. coli* K-12 MG1655 genome and in synthetic DNA using our own Bamboo
 Filter implementation.
@@ -55,6 +57,21 @@ make -j$(nproc)
 
 ---
 
+## Download genome data
+
+The *E. coli* genome is not stored in the repository. Fetch it from NCBI:
+
+```
+./scripts/fetch_data.sh
+```
+
+This downloads ~1.4 MB (gzipped, ~4.5 MB unpacked) into `data/`.
+Source: NCBI Assembly [GCA_000005845.2](https://www.ncbi.nlm.nih.gov/datasets/genome/GCA_000005845.2/).
+
+The script is idempotent — running it again when the file already exists is a no-op.
+
+---
+
 ## Run tests
 
 ```bash
@@ -64,8 +81,6 @@ make -j$(nproc)
 ```
 
 All three should print `PASSED` for every test case.
-
----
 
 ## Run benchmark
 
@@ -136,11 +151,12 @@ in advance — such as streaming k-mer indexing over genomes of unknown size.
 
 ## Genome data
 
-The `data/` directory contains the *E. coli* K-12 MG1655 complete genome:
+The benchmark uses the *E. coli* K-12 MG1655 complete genome, downloaded
+on demand by `scripts/fetch_data.sh` (see [Download genome data](#download-genome-data)).
 
-- **File:** `GCA_000005845_2_ASM584v2_genomic.fna`
+- **File:** `data/GCA_000005845_2_ASM584v2_genomic.fna` (created by fetch script)
 - **Source:** NCBI Assembly — accession [GCA_000005845.2](https://www.ncbi.nlm.nih.gov/datasets/genome/GCA_000005845.2/)
-- **Length:** 4,639,675 bp
+- **Length:** 4,641,652 bp
 
 ---
 
