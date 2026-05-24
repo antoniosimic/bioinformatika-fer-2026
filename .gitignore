@@ -8,6 +8,8 @@ cmake-build-*/
 *.exe
 
 # Data files (large)
+data/*.fna
+data/*.fna.gz
 data/*.fasta
 data/*.fasta.gz
 
