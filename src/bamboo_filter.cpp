@@ -7,6 +7,8 @@
 
 #include "hash.h"
 
+constexpr uint16_t BambooFilter::kEmpty;
+
 static size_t UpperPowerOfTwo(size_t n) {
     size_t p = 1;
     while (p < n) p <<= 1;
@@ -29,7 +31,7 @@ BambooFilter::BambooFilter(size_t initial_num_segments)
       num_items_(0) {
     segments_.reserve(initial_num_segments_);
     for (size_t i = 0; i < initial_num_segments_; i++) {
-        segments_.emplace_back(kBucketsPerSegment * kTagsPerBucket, 0);
+        segments_.emplace_back(kBucketsPerSegment * kTagsPerBucket, kEmpty);
     }
 }
 
@@ -52,11 +54,13 @@ uint16_t BambooFilter::MakeTag(uint64_t hv) const {
     // Tag occupies bits just above the segment bits at level 0. By placing
     // it there, the tag's low bits coincide with future segment-index high
     // bits — which is exactly what SplitSegment will need to decide how to
-    // partition tags between source and buddy segment.
+    // partition tags between source and buddy segment. We MUST NOT remap
+    // any value here (e.g. bump 0→1) because that would break the bit-level
+    // correspondence with the hash; the empty-slot collision is handled by
+    // using kEmpty (0xFFFF) as the empty sentinel instead of 0.
     int shift = kBucketBits + initial_seg_bits_;
-    uint16_t tag = static_cast<uint16_t>(
+    return static_cast<uint16_t>(
         (hv >> shift) & ((1u << kTagBits) - 1));
-    return tag == 0 ? 1 : tag;
 }
 
 size_t BambooFilter::AltBucket(size_t b, uint16_t tag) const {
@@ -71,7 +75,7 @@ bool BambooFilter::InsertIntoBucket(size_t seg, size_t b, uint16_t tag) {
     auto& slots = segments_[seg];
     size_t base = b * kTagsPerBucket;
     for (int i = 0; i < kTagsPerBucket; i++) {
-        if (slots[base + i] == 0) {
+        if (slots[base + i] == kEmpty) {
             slots[base + i] = tag;
             return true;
         }
@@ -93,7 +97,7 @@ bool BambooFilter::DeleteFromBucket(size_t seg, size_t b, uint16_t tag) {
     size_t base = b * kTagsPerBucket;
     for (int i = 0; i < kTagsPerBucket; i++) {
         if (slots[base + i] == tag) {
-            slots[base + i] = 0;
+            slots[base + i] = kEmpty;
             return true;
         }
     }
@@ -106,7 +110,11 @@ bool BambooFilter::TryInsertOnce(uint16_t tag, size_t s, size_t b1) {
         InsertIntoBucket(s, b2, tag)) {
         return true;
     }
-    // Cuckoo eviction within segment s.
+    // Cuckoo eviction within segment s. We snapshot the segment first so
+    // that if the chain fails after kMaxKicks we can revert — otherwise
+    // the last carried tag would be silently dropped, producing a real
+    // false negative for a previously-inserted item.
+    std::vector<uint16_t> backup = segments_[s];
     size_t b = (std::rand() & 1) ? b1 : b2;
     for (int n = 0; n < kMaxKicks; n++) {
         size_t base = b * kTagsPerBucket;
@@ -117,6 +125,7 @@ bool BambooFilter::TryInsertOnce(uint16_t tag, size_t s, size_t b1) {
             return true;
         }
     }
+    segments_[s] = std::move(backup);
     return false;
 }
 
@@ -124,24 +133,47 @@ bool BambooFilter::Insert(const std::string& key) {
     HashTag h = Hash64(key);
     uint16_t tag = MakeTag(h.h1);
 
-    // Try; if the target segment is full, split and retry. We re-compute
-    // SegmentIndex after splitting because split_pointer_ may have moved
-    // and this item may now belong to a different (newly created) segment.
-    for (int attempt = 0; attempt < 2; attempt++) {
+    // Dedupe: as a set filter (per the Bamboo / Cuckoo Filter contract),
+    // inserting the same key twice is a no-op. We have to check before
+    // splitting because duplicate keys share the same hash → same tag →
+    // same tag bit at every level, so SplitSegment can never distribute
+    // them across the source/buddy pair. Without this guard, a stream of
+    // duplicate inserts (e.g. dup k-mers from a small alphabet) packs the
+    // same bucket until it overflows, then loops splitting forever until
+    // the level cap is hit, blowing memory to the maximum.
+    {
+        size_t s = SegmentIndex(h.h1);
+        size_t b1 = BucketIndex(h.h1);
+        size_t b2 = AltBucket(b1, tag);
+        if (BucketContains(s, b1, tag) || BucketContains(s, b2, tag)) {
+            return true;
+        }
+    }
+
+    // Try; if the target segment is full, split and retry. SplitSegment
+    // only splits segments_[split_pointer_], so if our target s is well
+    // ahead of split_pointer_ we may need many splits before s itself
+    // gets touched. Loop until either we succeed or SplitSegment is a
+    // no-op (level exhausted — tag bits all used up as routing bits).
+    while (true) {
         size_t s = SegmentIndex(h.h1);
         size_t b1 = BucketIndex(h.h1);
         if (TryInsertOnce(tag, s, b1)) {
             num_items_++;
             // Pre-emptively split when the overall load gets uncomfortable
-            // so we never reach the "segment full" path under normal use.
+            // so we don't have to chase failures on the next insertion.
             if (LoadFactor() > kExpandThreshold) {
                 SplitSegment();
             }
             return true;
         }
+        size_t prev_sp = split_pointer_;
+        size_t prev_level = level_;
         SplitSegment();
+        if (split_pointer_ == prev_sp && level_ == prev_level) {
+            return false;  // can't split further; filter is genuinely full
+        }
     }
-    return false;
 }
 
 void BambooFilter::SplitSegment() {
@@ -150,7 +182,7 @@ void BambooFilter::SplitSegment() {
 
     size_t p = split_pointer_;
     size_t new_seg = segments_.size();
-    segments_.emplace_back(kBucketsPerSegment * kTagsPerBucket, 0);
+    segments_.emplace_back(kBucketsPerSegment * kTagsPerBucket, kEmpty);
 
     // Move tags whose `level_`-th bit is 1 from source segment p into the
     // new buddy segment, keeping the bucket-within-segment position. The
@@ -164,9 +196,9 @@ void BambooFilter::SplitSegment() {
         int dst_slot = 0;
         for (int slot = 0; slot < kTagsPerBucket; slot++) {
             uint16_t tag = src[base + slot];
-            if (tag != 0 && ((tag >> level_) & 1)) {
+            if (tag != kEmpty && ((tag >> level_) & 1)) {
                 dst[base + dst_slot++] = tag;
-                src[base + slot] = 0;
+                src[base + slot] = kEmpty;
             }
         }
     }
@@ -220,8 +252,8 @@ void BambooFilter::MergeSegment() {
     // Refuse to merge if the combined load is uncomfortably close to a
     // single segment's capacity — we'd just expand again immediately.
     size_t src_count = 0, dst_count = 0;
-    for (auto t : segments_[source]) if (t != 0) src_count++;
-    for (auto t : segments_[target]) if (t != 0) dst_count++;
+    for (auto t : segments_[source]) if (t != kEmpty) src_count++;
+    for (auto t : segments_[target]) if (t != kEmpty) dst_count++;
     size_t cap = kBucketsPerSegment * kTagsPerBucket;
     if (src_count + dst_count > static_cast<size_t>(cap * 0.95)) return;
 
@@ -230,9 +262,9 @@ void BambooFilter::MergeSegment() {
         size_t base = b * kTagsPerBucket;
         for (int slot = 0; slot < kTagsPerBucket; slot++) {
             uint16_t tag = segments_[source][base + slot];
-            if (tag == 0) continue;
+            if (tag == kEmpty) continue;
             TryInsertOnce(tag, target, b);
-            segments_[source][base + slot] = 0;
+            segments_[source][base + slot] = kEmpty;
         }
     }
 

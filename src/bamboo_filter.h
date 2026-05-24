@@ -30,6 +30,12 @@ class BambooFilter {
     static constexpr int kBucketBits = 6;
     static constexpr int kTagsPerBucket = 4;
     static constexpr int kTagBits = 12;
+    // Empty-slot sentinel. Real tags are 12 bits (0..0xFFF), so 0xFFFF is
+    // unreachable as a valid tag value. Using a 16-bit-out-of-range sentinel
+    // (rather than the conventional 0) keeps `MakeTag` from having to bump
+    // zero tags to 1 — that bump would silently corrupt bit 0 of the tag,
+    // which SplitSegment uses to decide level-0 partitioning.
+    static constexpr uint16_t kEmpty = 0xFFFF;
 
     // initial_num_segments is rounded up to a power of two. Each segment
     // is preallocated to hold kBucketsPerSegment * kTagsPerBucket tags.
