@@ -3,12 +3,11 @@
 // Author: Jakov
 
 HashTag Hash64(const std::string& key) {
-    uint64_t out1[2];
-    uint64_t out2[2];
-
-    // Two calls with different seeds → two independent hash values
-    MurmurHash3_x64_128(key.data(), (int)key.size(), 0x9747b28c, out1);
-    MurmurHash3_x64_128(key.data(), (int)key.size(), 0x85ebca6b, out2);
-
-    return HashTag{ out1[0], out2[0] };
+    // Murmur3_x64_128 already produces a full 128-bit mix in a single call;
+    // its two 64-bit halves are independent enough for the Kirsch-Mitzenmacher
+    // trick (Bloom) and for h1/h2 reuse (Cuckoo, Bamboo). Halves the per-key
+    // hash cost vs. the previous two-seed version — material for small k.
+    uint64_t out[2];
+    MurmurHash3_x64_128(key.data(), (int)key.size(), 0x9747b28c, out);
+    return HashTag{ out[0], out[1] };
 }
