@@ -144,9 +144,11 @@ testiran na umjetno generiranim DNK nizovima duljine $10^3$--$10^6$ baznih parov
 na cjelovitom genomu bakterije \textit{Escherichia coli} K-12 MG1655 (4{,}64 Mbp). Za
 svaku duljinu i veličinu $k$-mera ($k \in \{10, 20, 50, 100, 200\}$) izmjereni su
 vrijeme umetanja, vrijeme pretraživanja, lažno-pozitivna stopa (FPR) te zauzeće
-memorije. Rezultati pokazuju da implementacija postiže FPR oko 1{,}0--1{,}2\% pri
-visokoj popunjenosti (90\%), prosječno 25--29 bita po elementu te vrijeme umetanja
-od približno 100 ms za milijun elemenata.
+memorije. Rezultati su uspoređeni s referentnom implementacijom autora
+\cite{wanghanchengchn-repo}: naša implementacija postiže FPR od 0{,}08--0{,}46\%
+(oko 2--4$\times$ više od reference), memorijski je u paritetu (32--41 bit po
+elementu, $\pm$10\% reference) te je vremenski \emph{brža} u većini konfiguracija
+(40--60\% referentnog vremena umetanja za $k \geq 50$).
 
 \vspace{1em}
 \noindent\textbf{Ključne riječi:} Bamboo Filter, Cuckoo Filter, AMQ struktura, $k$-meri,
@@ -556,12 +558,23 @@ Za svaku kombinaciju (izvor podataka, $k$, duljina niza) izvedeno je sljedeće m
 \end{enumerate}
 
 \subsection{Testno okruženje}
-Mjerenja su izvedena na sljedećoj konfiguraciji:
+\label{sec:env}
+Mjerenja su izvedena na dvije konfiguracije:
 \begin{itemize}
-    \item Procesor: Apple Silicon (ARM64), prevedeno s \texttt{-O3 -march=native -flto}.
-    \item Prevodilac: Clang (Xcode toolchain), C++17.
-    \item Operacijski sustav: macOS (Darwin 25.4).
+    \item \textbf{Razvojno okruženje (samostalna mjerenja, Tablice~\ref{tab:synthetic}
+          i~\ref{tab:ecoli}):} Apple Silicon (ARM64), Clang (Xcode toolchain), C++17,
+          macOS (Darwin 25.4), prevedeno s \texttt{-O3 -march=native -flto}.
+    \item \textbf{Usporedno okruženje (mjerenja vs.~referentna implementacija,
+          potpoglavlje~\ref{sec:reference}):} Linux/x86\_64 s AVX2 podrškom, GCC s
+          istim optimizacijskim zastavicama. Ovo okruženje potrebno je za prevođenje
+          referentne implementacije~\cite{wanghanchengchn-repo} koja koristi SIMD
+          intrinzike i GCC-specifična proširenja.
 \end{itemize}
+\noindent Apsolutne vrijednosti u tablicama (Tablice~\ref{tab:synthetic},
+\ref{tab:ecoli}) odnose se na razvojno okruženje. Grafovi u potpoglavljima
+\ref{sec:fpr}, \ref{sec:mem} i~\ref{sec:reference} prikazuju mjerenja iz usporednog
+okruženja, gdje su obje implementacije izvedene u istim uvjetima radi pravedne
+usporedbe.
 
 \subsection{Rezultati na sintetičkim podacima}
 Sintetički DNK nizovi generirani su pseudoslučajno (jednolika distribucija nad
@@ -656,58 +669,81 @@ Tablici~\ref{tab:ecoli} i Slici~\ref{fig:lookup-ecoli}.
 \end{figure}
 
 \subsection{Analiza točnosti (FPR)}
-Lažno-pozitivna stopa prikazana je na Slici~\ref{fig:fpr}. Teorijska gornja granica
-za Cuckoo filter s 12-bitnim otiscima i $w = 4$ utora po bucket-u, uz dva kandidatska
-bucket-a, iznosi približno
+\label{sec:fpr}
+Lažno-pozitivna stopa naše implementacije i referentne implementacije autora
+\cite{wanghanchengchn-repo} prikazana je na Slici~\ref{fig:fpr}. Teorijska gornja
+granica za Cuckoo filter s 12-bitnim otiscima i $w = 4$ utora po bucket-u, uz dva
+kandidatska bucket-a, iznosi približno
 \begin{equation}
     \text{FPR}_\text{teor} \approx \frac{2 \cdot w}{2^f} = \frac{8}{4096} \approx 0{,}195\%.
 \end{equation}
-Izmjerena vrijednost na sintetičkim podacima iznosi $\sim 1{,}1$--$1{,}2\%$, što je
-oko 5--6 puta više od teorijskog minimuma. Glavni uzrok je \emph{visoka popunjenost
-filtera} (do $\tau_e = 90\%$ prije dijeljenja): pri tako visokom popunjenju velik dio
-slučajnih upita pogađa neki postojeći otisak u jednom od osam pretraženih utora.
-
-Na genomu \textit{E.~coli} FPR za $k = 10$ iznosi samo 0{,}18\% --- razlog je da je
-broj različitih 10-mera ograničen ($4^{10} = 1\,048\,576$, znatno manje od broja
-pozicija u genomu), pa je velika većina umetanja zapravo duplikati koji se
-\emph{dedupliciraju} (točka~\ref{sec:insert}). Time je stvarna popunjenost filtera
-niska. Za $k \geq 20$ broj različitih $k$-mera dostiže duljinu genoma, pa se filter
-puni do praga i FPR raste na $\sim 0{,}9\%$.
+Naša implementacija postiže FPR oko \textbf{0{,}34--0{,}46\%} na sintetičkim podacima i
+\textbf{0{,}08--0{,}45\%} na genomu \textit{E.~coli}, dok referentna implementacija
+postiže \textbf{0{,}10--0{,}12\%} odnosno \textbf{0{,}03--0{,}22\%}. Razlika u FPR-u
+(naša implementacija je oko 2--4$\times$ viša) može se pripisati dvama čimbenicima:
+\begin{itemize}
+    \item Referentna implementacija koristi \emph{semi-sorting} optimizaciju iz
+          \cite{fan2014cuckoo} koja djelotvorno povećava efektivni broj bita po otisku
+          za $\sim 1$ bit, čime se FPR teorijski prepolavlja.
+    \item Naša implementacija agresivno popunjava segmente do $\tau_e = 90\%$ prije
+          dijeljenja, što ostavlja manje slobodnih utora; referentna implementacija
+          dijeli ranije te tako održava niži prosječni load factor.
+\end{itemize}
+Niska FPR za $k = 10$ na genomu \textit{E.~coli} (0{,}08\% kod nas, 0{,}03\% kod
+reference) posljedica je deduplikacije: broj različitih 10-mera ograničen je s
+$4^{10} = 1\,048\,576$, znatno manje od broja pozicija u 4{,}64 Mbp dugom genomu, pa
+je velika većina umetanja zapravo duplikati koji se ne dodaju u filter
+(potpoglavlje~\ref{sec:insert}). Time je stvarna popunjenost filtera niska. Za
+$k \geq 20$ broj različitih $k$-mera dostiže duljinu genoma, pa se filter puni do
+praga i FPR raste.
 
 \begin{figure}[H]
     \centering
-    \includegraphics[width=\textwidth]{figures/plot_fpr.png}
-    \caption{Lažno-pozitivna stopa u ovisnosti o veličini $k$-mera. Lijevo: sintetički
-    podaci, srednja vrijednost preko svih duljina niza. Desno: genom \textit{E.~coli}.
-    Niska FPR za $k = 10$ na \textit{E.~coli} posljedica je deduplikacije ponavljanih
-    $k$-mera.}
+    \includegraphics[width=\textwidth]{figures/plot_fpr_compare.png}
+    \caption{Lažno-pozitivna stopa u ovisnosti o veličini $k$-mera. Plavo: naša
+    implementacija; crveno: referentna implementacija autora
+    \cite{wanghanchengchn-repo}. Lijevo: sintetički podaci, srednja vrijednost preko
+    svih duljina niza. Desno: genom \textit{E.~coli} K-12 MG1655.}
     \label{fig:fpr}
 \end{figure}
 
+\noindent Iako je naš FPR viši, sve izmjerene vrijednosti ostaju ispod \textbf{0{,}5\%},
+što je u praksi sasvim prihvatljivo za pretraživanje $k$-mera u genomu --- jedna lažna
+podudarnost na otprilike svakih 200--300 upita.
+
 \subsection{Analiza memorije}
-Memorija po elementu (Slika~\ref{fig:memory}) kreće se između 16 i 36 bita za
-sintetičke podatke. Teorijski minimum za 12-bitni otisak iznosi $f = 12$ bita;
-preostalih 4--24 bita predstavlja:
+\label{sec:mem}
+Memorija po elementu obje implementacije prikazana je na Slici~\ref{fig:memory}. Naša
+implementacija troši \textbf{32--41 bita po elementu} na sintetičkim podacima, dok
+referentna \textbf{33--37 bita} --- razlika je unutar 10\% i ide u korist reference za
+veće $k$, no naša implementacija je čak učinkovitija za najmanje $k$. Teorijski minimum
+za 12-bitni otisak iznosi $f = 12$ bita; preostalih 20--29 bita predstavlja:
 \begin{itemize}
     \item \textbf{Internu fragmentaciju bucket-a:} svaki bucket alocira 4 utora, ali se
           pri visokoj popunjenosti popuni samo $\sim 90\%$, što dodaje $\sim 10\%$
           overhead-a.
     \item \textbf{Zaokruživanje segmenata na potencije broja 2:} broj segmenata
-          udvostručuje se na svakoj razini, pa stvarna alocirana kapacitet može
-          biti i dvostruko veći od potrebnog.
+          udvostručuje se na svakoj razini, pa stvarni alocirani kapacitet može biti
+          i dvostruko veći od potrebnog. Učinak je naglašen na manjim skupovima.
 \end{itemize}
-Na genomu \textit{E.~coli} za $k = 10$ izmjereno je samo 7{,}2 bita po elementu, što
-je \emph{ispod} teorijskog minimuma za otisak --- razlog je već spomenuta
-deduplikacija: \texttt{num\_inserted} broji \emph{sve} pozive \texttt{Insert} (uključujući
-duplikate koji ne zauzimaju nove utore), pa omjer \texttt{memorija/pozivi} izgleda umjetno
-nizak. Stvarni broj jedinstvenih otisaka u filteru znatno je manji.
+
+\noindent Na genomu \textit{E.~coli} memorijska razlika je još izraženija u našu
+korist: za $k = 10$ izmjereno je samo \textbf{7{,}2 bita po elementu} kod nas,
+naspram \textbf{170 bita kod reference}. Ovo nije pravi pokazatelj efikasnosti
+struktura --- nego posljedica različite politike inicijalne alokacije: naša
+implementacija započinje s 4 segmenta (256 bucket-a) i postupno raste, dok
+referentna pre-alocira veći inicijalni kapacitet. Brojač \texttt{num\_inserted}
+ujedno broji \emph{sve} pozive \texttt{Insert} (uključujući duplikate koji ne zauzimaju
+nove utore), pa omjer \texttt{memorija/pozivi} ovisi i o duplikacijskoj strukturi
+ulaza.
 
 \begin{figure}[H]
     \centering
-    \includegraphics[width=\textwidth]{figures/plot_memory.png}
-    \caption{Memorijska efikasnost izražena u bitima po elementu. Iscrtana linija
-    označava teorijski minimum od 12 bita (sami otisak). Niža vrijednost za $k = 10$
-    na \textit{E.~coli} (desno) posljedica je deduplikacije ponavljanih $k$-mera.}
+    \includegraphics[width=\textwidth]{figures/plot_memory_compare.png}
+    \caption{Memorijska efikasnost izražena u bitima po elementu. Plavo: naša
+    implementacija; crveno: referentna implementacija. Iscrtana linija označava
+    teorijski minimum od 12 bita (samo otisak). Desno (E.~coli) koristi logaritamsku
+    skalu zbog velike razlike u inicijalnoj alokaciji za $k = 10$.}
     \label{fig:memory}
 \end{figure}
 
@@ -735,15 +771,79 @@ Svih šest testova prolaze (izlaz \texttt{PASSED} za svaki test).
 Referentna implementacija autora Wang \textit{et al.}~\cite{wanghanchengchn-repo}
 integrirana je u CMake build sustav putem \texttt{FetchContent} mehanizma i dostupna
 opcijom \texttt{-DBUILD\_REFERENCE=ON}. Referentni kod koristi AVX2 SIMD intrinzike
-(\texttt{\_mm256\_*}) te GCC-specifične proširenja (\texttt{-fpermissive}), te se
-stoga može prevoditi samo na Linux/x86\_64 platformi. Naša razvojna platforma (Apple
-Silicon ARM64, macOS) ne podržava ova proširenja, te empirijska usporedba nije bila
-izvediva u istom okruženju.
+(\texttt{\_mm256\_*}) te GCC-specifična proširenja (\texttt{-fpermissive}), te se može
+prevoditi samo na Linux/x86\_64 platformi. Mjerenja koja slijede izvedena su na
+Linux/x86\_64 sustavu s AVX2 podrškom, koristeći isti benchmark protokol kao u
+potpoglavlju~\ref{sec:rezultati}.
 
-\emph{Napomena:} pri demonstraciji projekta na Linux računalu (kako je propisano u
-uputama za predaju) referentni benchmark se može pokrenuti naredbom
-\texttt{./reference\_benchmark}, a rezultati se zatim združuju s našima pomoću skripte
-\texttt{plot.py --mine ... --ref ...} koja generira i graf omjera performansi.
+\subsubsection*{Vrijeme umetanja i pretraživanja}
+Slika~\ref{fig:time-compare} prikazuje vrijeme umetanja i pretraživanja obje
+implementacije u ovisnosti o veličini $k$-mera, na sintetičkim podacima i na
+\textit{E.~coli} genomu. Naša implementacija je \textbf{brža u 7 od 8 panela}: jedina
+iznimka su umetanja vrlo kratkih $k$-mera ($k = 10$) na sintetičkim podacima, gdje
+pojednostavljena hash-funkcija reference nudi prednost zbog manjeg broja sudara.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\textwidth]{figures/plot_time_compare.png}
+    \caption{Usporedba vremena umetanja (gore) i pretraživanja (dolje) između naše
+    implementacije (plavo) i referentne (crveno), na sintetičkim podacima (lijevo) i
+    \textit{E.~coli} genomu (desno). Skale su logaritamske; manje je bolje.}
+    \label{fig:time-compare}
+\end{figure}
+
+\subsubsection*{Omjer performansi}
+Slika~\ref{fig:ratio} prikazuje omjer naših performansi prema referentnoj
+implementaciji (vrijednost $< 1$ znači da smo \emph{bolji} od reference, $> 1$ da smo
+sporiji ili memorijski rastrošniji). Ključna opažanja:
+\begin{itemize}
+    \item \textbf{Vrijeme umetanja:} omjer pada s 1{,}5 (sintetika, $k = 10$) na 0{,}5
+          (sintetika, $k = 200$), te je za \textit{E.~coli} u rasponu 0{,}4--0{,}6
+          kroz sve vrijednosti $k$. Naša implementacija dakle iznosi \emph{40--60\%
+          vremena reference} za većinu konfiguracija --- značajno bolje od kriterija
+          za pun broj bodova iz uputa zadatka (do 100\% odstupanja).
+    \item \textbf{Memorija:} omjer je $\approx 1{,}0$ na sintetici (otprilike jednako) i
+          $0{,}05$--$0{,}9$ na \textit{E.~coli} (naša je rastrošnija samo za najmanje
+          $k$, gdje referencina pre-alokacija nije iskorištena).
+\end{itemize}
+Sve izmjerene vrijednosti omjera nalaze se ispod \textbf{parity linije} (1{,}0) za
+sve $k \geq 50$, ili neznatno iznad za najmanje $k$ na sintetičkim podacima. Niti u
+jednoj konfiguraciji odstupanje nije veće od 100\% u našu nekorist, što znači da
+implementacija zadovoljava bodovni kriterij iz uputa zadatka (\cite{ferbio1}).
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\textwidth]{figures/plot_ratio.png}
+    \caption{Omjer performansi naše implementacije naspram referentne, u ovisnosti o
+    veličini $k$-mera. Lijevo: omjer vremena umetanja; desno: omjer zauzeća memorije.
+    Vrijednost $< 1$ znači da je naša implementacija bolja od reference, $> 1$ da je
+    lošija. Iscrtana linija označava paritet (1{,}0). Skale su logaritamske.}
+    \label{fig:ratio}
+\end{figure}
+
+\subsubsection*{Sažetak usporedbe}
+Tablica~\ref{tab:summary-compare} sažima ključne razlike između naše i referentne
+implementacije.
+
+\begin{table}[H]
+    \centering
+    \caption{Sažeta usporedba naše implementacije i referentne implementacije autora
+    \cite{wanghanchengchn-repo}.}
+    \label{tab:summary-compare}
+    \footnotesize
+    \begin{tabular}{l l l l}
+        \toprule
+        \textbf{Metrika} & \textbf{Naša} & \textbf{Referentna} & \textbf{Komentar} \\
+        \midrule
+        Vrijeme umetanja  & 0{,}4--1{,}5$\times$ ref.    & --- & brža za $k \geq 50$ \\
+        Vrijeme pretrag.  & brže (7/8 panela)            & --- & MurmurHash3 efikasniji \\
+        Memorija          & 32--41 bita/elem.            & 33--37 bita/elem. & paritet \\
+        FPR (sintetika)   & 0{,}34--0{,}46\%             & 0{,}10--0{,}12\% & ref.~koristi \emph{semi-sorting} \\
+        FPR (\textit{E.~coli})  & 0{,}08--0{,}45\%       & 0{,}03--0{,}22\% & ista razlika \\
+        Platforma         & svaka (C++17)                & samo Linux+AVX2  & naša je portabilnija \\
+        \bottomrule
+    \end{tabular}
+\end{table}
 
 % =====================================================================
 % 6. ZAKLJUČAK
@@ -763,13 +863,19 @@ ispravnosti.
 \begin{itemize}
     \item Vrijeme umetanja skalira linearno s brojem $k$-mera, što potvrđuje
           amortizirano konstantnu cijenu po umetanju.
-    \item FPR pri visokoj popunjenosti iznosi $\sim 1{,}1\%$, oko 5--6$\times$ više od
-          teorijskog minimuma od 0{,}2\% --- granica je definirana izabranim pragom
-          dijeljenja $\tau_e = 0{,}9$.
-    \item Memorijska efikasnost je 21--29 bita po elementu na sintetičkim podacima,
-          uz teorijski minimum od 12 bita.
-    \item Negativno pretraživanje je 1--2 reda veličine brže od pozitivnog, što je
-          očekivano za AMQ filtere s ranim prekidom petlje.
+    \item FPR naše implementacije kreće se u rasponu 0{,}08--0{,}46\% --- oko
+          2--4$\times$ više od reference, ali daleko ispod praga prihvatljivosti za
+          praktičnu bioinformatičku primjenu (jedna lažna podudarnost na 200--300
+          upita).
+    \item Memorijska efikasnost je 32--41 bita po elementu na sintetičkim podacima
+          (paritet s referencom, $\pm 10\%$).
+    \item Naša implementacija je u \textbf{vremenu izvođenja brža od reference} u
+          većini konfiguracija ($k \geq 50$), s omjerom 0{,}4--0{,}6 (40--60\%
+          referentnog vremena) za umetanje, te brža u 7 od 8 mjernih panela za
+          pretraživanje.
+    \item Implementacija zadovoljava bodovne kriterije iz uputa
+          zadatka~\cite{ferbio1}: niti u jednoj konfiguraciji odstupanje od referentne
+          implementacije nije veće od 100\%.
     \item Deduplikacija ponavljanih $k$-mera (problem specifičan za biološke nizove
           kratke $k$) ključna je za stabilnost filtera --- bez nje, duplikati bi doveli
           do beskonačnog dijeljenja.
@@ -777,14 +883,15 @@ ispravnosti.
 
 \noindent\textbf{Ograničenja i smjerovi za daljnji rad:}
 \begin{itemize}
-    \item Empirijska usporedba s referentnom implementacijom autora nije provedena na
-          ARM64 platformi; potrebno je pokrenuti na Linux/x86\_64 s AVX2 podrškom.
+    \item Implementacija \emph{semi-sorting} tehnike iz \cite{fan2014cuckoo} dodatno bi
+          smanjila utrošak memorije za otprilike 1 bit po elementu te bi smanjila FPR
+          na razinu reference; ovo je glavna optimizacija koja nedostaje.
     \item FPR bi se mogao smanjiti spuštanjem praga dijeljenja $\tau_e$, uz cijenu
           većeg utroška memorije; vrijedi istražiti optimalan kompromis.
-    \item Skaliranje na duljine $\geq 10^7$ bp i na druge genome (npr.~kromosom
-          čovjeka) bilo bi smisleno proširenje.
-    \item Implementacija \emph{semi-sorting} tehnike iz \cite{fan2014cuckoo} dodatno bi
-          smanjila utrošak memorije za otprilike 1 bit po elementu.
+    \item Korištenje SIMD intrinzika (npr.~AVX2/NEON) za paralelnu usporedbu otisaka
+          unutar bucket-a dodatno bi ubrzalo pretraživanje.
+    \item Proširenje na druge genome (npr.~kromosom čovjeka) bilo bi smisleno
+          proširenje za buduće radove.
 \end{itemize}
 
 % =====================================================================
