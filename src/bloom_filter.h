@@ -7,6 +7,7 @@
 // generates k hash functions from only 2 base hashes.
 // Supports insert and lookup — NO delete (fundamental limitation).
 // Author: Jakov
+
 class BloomFilter {
 public:
     // n = expected number of elements

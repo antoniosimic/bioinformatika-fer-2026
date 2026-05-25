@@ -13,6 +13,3 @@ struct HashTag {
 
 // Returns a HashTag for the given key string
 HashTag Hash64(const std::string& key);
-
-// Returns an 8-bit fingerprint (never 0 — 0 means empty slot)
-uint8_t Fingerprint(const std::string& key);

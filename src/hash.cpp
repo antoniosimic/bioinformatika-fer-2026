@@ -12,10 +12,3 @@ HashTag Hash64(const std::string& key) {
 
     return HashTag{ out1[0], out2[0] };
 }
-
-uint8_t Fingerprint(const std::string& key) {
-    HashTag h = Hash64(key);
-    // Clamp to 8 bits, ensure never 0 (0 = empty slot in buckets)
-    uint8_t fp = (uint8_t)(h.h2 & 0xFF);
-    return fp == 0 ? 1 : fp;
-}
