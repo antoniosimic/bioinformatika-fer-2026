@@ -1,6 +1,7 @@
 #!/bin/bash
 # Downloads E. coli K-12 MG1655 reference genome from NCBI.
 # Output: data/GCA_000005845_2_ASM584v2_genomic.fna
+# Author: Jakov Malić
 set -e
 
 DATA_DIR="$(dirname "$0")/../data"

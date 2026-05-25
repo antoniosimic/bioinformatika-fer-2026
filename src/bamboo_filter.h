@@ -7,14 +7,17 @@
 //
 // Storage is organised as a vector of fixed-size segments. Each segment
 // holds `kBucketsPerSegment` buckets, each bucket holds `kTagsPerBucket`
-// 12-bit tags stored in uint16_t slots (slot value 0 == empty).
+// 12-bit tags stored in uint16_t slots. The sentinel `kEmpty` (0xFFFF)
+// marks an empty slot — we use an out-of-range value rather than 0 so a
+// genuine zero tag is not misread as empty.
 //
 // Hash decomposition (using the first 64-bit hash from hash.h):
 //   bits [0, 6)                 → bucket index within segment
 //   bits [6, 6 + log2(N0_seg))  → segment index at level 0
 //   bits [6 + log2(N0_seg), …)  → 12-bit tag (overlaps with segment-index
-//                                 high bits — see SplitSegment in the next
-//                                 commit for why)
+//                                 high bits — SplitSegment uses tag bit L
+//                                 as the new high segment bit during the
+//                                 L-th doubling round)
 
 #ifndef BAMBOO_FILTER_H_
 #define BAMBOO_FILTER_H_
@@ -45,7 +48,7 @@ class BambooFilter {
     bool Lookup(const std::string& key) const;
     bool Delete(const std::string& key);
 
-    // Introspection (used by the resize-demo plot in a later commit).
+    // Introspection accessors (used by the tests and benchmark).
     size_t Size() const { return num_items_; }
     size_t NumSegments() const { return segments_.size(); }
     size_t NumBuckets() const {
@@ -112,8 +115,8 @@ class BambooFilter {
     size_t initial_num_segments_;   // N0_seg, power of two
     int initial_seg_bits_;          // log2(initial_num_segments_)
     size_t level_;                  // L: number of completed doublings
-    size_t split_pointer_;          // p: next segment to split (unused
-                                    //    until the next commit)
+    size_t split_pointer_;          // p: index of the next segment to be
+                                    //    split in the current doubling round
     size_t num_items_;
 };
 

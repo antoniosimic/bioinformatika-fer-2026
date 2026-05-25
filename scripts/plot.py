@@ -1,6 +1,10 @@
-# Plots benchmark results from two CSVs (own + reference Wang et al.)
-# side by side. Computes a merged dataframe internally — no manual merge
-# needed beforehand.
+# Plots benchmark results from one or two CSVs (our implementation and,
+# optionally, the Wang et al. reference). Produces four PNG figures:
+#
+#   plot_time.png    insert + lookup time, synthetic and E. coli
+#   plot_fpr.png     false positive rate vs k
+#   plot_memory.png  bits per item vs k
+#   plot_ratio.png   ours / reference summary (only when --ref is given)
 #
 # Usage:
 #   python3 scripts/plot.py \
@@ -8,11 +12,10 @@
 #       --ref     results/results_ref.csv \
 #       --output  results/
 #
-# Author: Jakov
+# Author: Jakov Malić
 
 import argparse
 import os
-import sys
 import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
@@ -34,7 +37,7 @@ args = parser.parse_args()
 
 os.makedirs(args.output, exist_ok=True)
 
-# ── Load and merge ───────────────────────────────────────────────────────────
+# ── Load ─────────────────────────────────────────────────────────────────────
 
 df_mine = pd.read_csv(args.mine)
 if args.ref:
@@ -51,7 +54,7 @@ ecoli     = df[df["data_source"] == "ecoli"].copy()
 
 # ── Shared style ─────────────────────────────────────────────────────────────
 
-STYLE = {
+plt.rcParams.update({
     "figure.dpi":         150,
     "axes.spines.top":    False,
     "axes.spines.right":  False,
@@ -60,8 +63,7 @@ STYLE = {
     "font.size":          11,
     "lines.linewidth":    2,
     "lines.markersize":   7,
-}
-plt.rcParams.update(STYLE)
+})
 
 FILTER_COLORS = {
     "Bamboo":          "#1f77b4",
@@ -76,79 +78,70 @@ FILTER_MARKERS = {
     "BambooReference": "s",
 }
 
-def color_for(f):  return FILTER_COLORS.get(f, "#999999")
-def label_for(f):  return FILTER_LABELS.get(f, f)
-def marker_for(f): return FILTER_MARKERS.get(f, "^")
+def style(f):
+    """Return (color, label, marker) for a filter name."""
+    return (FILTER_COLORS.get(f, "#999999"),
+            FILTER_LABELS.get(f, f),
+            FILTER_MARKERS.get(f, "^"))
 
-# ── Plot 1: Insert time vs sequence length (one panel per k) ─────────────────
 
-ks_synth = sorted(synthetic["k"].unique())
-fig, axes = plt.subplots(1, len(ks_synth), figsize=(4.2 * len(ks_synth), 4.5),
-                         sharey=True)
-if len(ks_synth) == 1:
-    axes = [axes]
-
-for ax, k in zip(axes, ks_synth):
+def plot_lines_per_k(ax, data, ycol, ylabel, title, logy=True):
+    """Line plot of `ycol` vs k for each filter, mean over seq_length."""
     for f in filters:
-        sub = synthetic[(synthetic["k"] == k) & (synthetic["filter"] == f)] \
-            .sort_values("seq_length")
-        if sub.empty:
+        sub = data[data["filter"] == f]
+        grouped = sub.groupby("k")[ycol].mean().reset_index().sort_values("k")
+        if grouped.empty:
             continue
-        ax.plot(sub["seq_length"], sub["insert_ms"],
-                marker=marker_for(f), color=color_for(f),
-                label=label_for(f))
-    ax.set_xscale("log")
-    ax.set_yscale("log")
-    ax.set_xlabel("Sequence length [bp]")
-    ax.set_title(f"k = {k}")
-    ax.legend(fontsize=8)
+        color, label, marker = style(f)
+        ax.plot(grouped["k"], grouped[ycol],
+                marker=marker, color=color, label=label)
+    ax.set_xlabel("k-mer size")
+    ax.set_ylabel(ylabel)
+    ax.set_title(title)
+    if logy:
+        ax.set_yscale("log")
+    ax.legend(fontsize=9)
 
-axes[0].set_ylabel("Insert time [ms]")
-fig.suptitle("Insert time vs sequence length — synthetic DNA", fontsize=13)
+
+# ── Plot 1: Time (insert + lookup, synthetic + ecoli) ────────────────────────
+#
+# 2x2 grid: rows = phase (insert, lookup_pos), cols = data source.
+# Y-axis time in ms (log scale). X-axis k-mer size.
+
+fig, axes = plt.subplots(2, 2, figsize=(12, 8))
+for row, (metric, label) in enumerate([
+        ("insert_ms",     "Insert time [ms]"),
+        ("lookup_pos_ms", "Lookup time [ms]")]):
+    for col, (src, title_src, data) in enumerate([
+            ("synthetic", "Synthetic DNA", synthetic),
+            ("ecoli",     "E. coli K-12 genome", ecoli)]):
+        ax = axes[row][col]
+        if data.empty:
+            ax.set_title(f"{title_src} (no data)")
+            continue
+        plot_lines_per_k(ax, data, metric, label,
+                         f"{title_src} — {label.split(' [')[0].lower()}")
+
+fig.suptitle("Time performance — ours vs reference", fontsize=14)
 fig.tight_layout()
-fig.savefig(os.path.join(args.output, "plot_insert_time.png"))
+fig.savefig(os.path.join(args.output, "plot_time.png"))
 plt.close(fig)
-print("Saved: plot_insert_time.png")
+print("Saved: plot_time.png")
 
-# ── Plot 2: FPR vs k ─────────────────────────────────────────────────────────
+# ── Plot 2: False positive rate ──────────────────────────────────────────────
 
 fig, axes = plt.subplots(1, 2, figsize=(12, 5))
-
-ax = axes[0]
-for f in filters:
-    sub = synthetic[synthetic["filter"] == f].sort_values("k")
-    grouped = sub.groupby("k")["false_positive_rate"].mean().reset_index()
-    if grouped.empty:
+for ax, (src, title, data) in zip(axes, [
+        ("synthetic", "Synthetic DNA", synthetic),
+        ("ecoli",     "E. coli K-12 genome", ecoli)]):
+    if data.empty:
+        ax.set_title(f"{title} (no data)")
         continue
-    ax.plot(grouped["k"], grouped["false_positive_rate"],
-            marker=marker_for(f), color=color_for(f), label=label_for(f))
-ax.set_xlabel("k-mer size")
-ax.set_ylabel("False positive rate")
-ax.set_title("Synthetic DNA (averaged over sequence lengths)")
-ax.yaxis.set_major_formatter(ticker.PercentFormatter(xmax=1, decimals=2))
-ax.legend(fontsize=9)
-
-ax = axes[1]
-ks_ecoli = sorted(ecoli["k"].unique())
-if ks_ecoli:
-    x = range(len(ks_ecoli))
-    width = 0.4 if len(filters) > 1 else 0.6
-    for i, f in enumerate(filters):
-        sub = ecoli[ecoli["filter"] == f].set_index("k").reindex(ks_ecoli)
-        offset = (i - (len(filters) - 1) / 2) * width
-        ax.bar([xi + offset for xi in x], sub["false_positive_rate"],
-               width, label=label_for(f), color=color_for(f), alpha=0.85)
-    ax.set_xticks(list(x))
-    ax.set_xticklabels([str(k) for k in ks_ecoli])
-    ax.set_xlabel("k-mer size")
-    ax.set_ylabel("False positive rate")
-    ax.set_title("E. coli K-12 genome")
+    plot_lines_per_k(ax, data, "false_positive_rate",
+                     "False positive rate", title, logy=False)
     ax.yaxis.set_major_formatter(ticker.PercentFormatter(xmax=1, decimals=2))
-    ax.legend(fontsize=9)
-else:
-    ax.set_title("E. coli K-12 genome (no data)")
 
-fig.suptitle("False positive rate vs k-mer size", fontsize=13)
+fig.suptitle("False positive rate vs k-mer size", fontsize=14)
 fig.tight_layout()
 fig.savefig(os.path.join(args.output, "plot_fpr.png"))
 plt.close(fig)
@@ -157,85 +150,38 @@ print("Saved: plot_fpr.png")
 # ── Plot 3: Memory ───────────────────────────────────────────────────────────
 
 fig, axes = plt.subplots(1, 2, figsize=(12, 5))
-
-for ax, src, title in zip(axes,
-                          ["synthetic", "ecoli"],
-                          ["Synthetic DNA", "E. coli K-12 genome"]):
-    data = df[df["data_source"] == src]
+for ax, (src, title, data) in zip(axes, [
+        ("synthetic", "Synthetic DNA", synthetic),
+        ("ecoli",     "E. coli K-12 genome", ecoli)]):
     if data.empty:
         ax.set_title(f"{title} (no data)")
         continue
-
-    for f in filters:
-        sub = data[data["filter"] == f]
-        grouped = sub.groupby("k")["bits_per_item"].mean().reset_index() \
-                                                   .sort_values("k")
-        if grouped.empty:
-            continue
-        ax.plot(grouped["k"], grouped["bits_per_item"],
-                marker=marker_for(f), color=color_for(f), label=label_for(f))
-
-    ax.axhline(y=12.0, linestyle="--", color="gray", alpha=0.6,
-               label="Theoretical min (12-bit tag)")
-    ax.set_xlabel("k-mer size")
-    ax.set_ylabel("Bits per item")
-    ax.set_title(title)
-    if src == "ecoli":
-        ax.set_yscale("log")
+    plot_lines_per_k(ax, data, "bits_per_item",
+                     "Bits per item", title, logy=(src == "ecoli"))
+    # Theoretical floor: 12 bits per stored tag. Real cost is higher
+    # because of the load factor (slots reserved but unused).
+    ax.axhline(y=12.0, linestyle="--", color="gray", alpha=0.5,
+               label="12-bit tag floor")
     ax.legend(fontsize=9)
 
-fig.suptitle("Memory efficiency (bits per item)", fontsize=13)
+fig.suptitle("Memory efficiency (bits per item)", fontsize=14)
 fig.tight_layout()
 fig.savefig(os.path.join(args.output, "plot_memory.png"))
 plt.close(fig)
 print("Saved: plot_memory.png")
 
-# ── Plot 4: Lookup time on E. coli ───────────────────────────────────────────
-
-if not ecoli.empty:
-    fig, axes = plt.subplots(1, 2, figsize=(13, 5), sharey=True)
-
-    for ax, col, title in zip(
-            axes,
-            ["lookup_pos_ms", "lookup_neg_ms"],
-            ["Positive lookups (inserted k-mers)",
-             "Negative lookups (random k-mers)"]):
-
-        ks_ecoli = sorted(ecoli["k"].unique())
-        x = range(len(ks_ecoli))
-        width = 0.4 if len(filters) > 1 else 0.6
-        for i, f in enumerate(filters):
-            sub = ecoli[ecoli["filter"] == f].set_index("k").reindex(ks_ecoli)
-            offset = (i - (len(filters) - 1) / 2) * width
-            ax.bar([xi + offset for xi in x], sub[col],
-                   width, label=label_for(f), color=color_for(f), alpha=0.85)
-        ax.set_xticks(list(x))
-        ax.set_xticklabels([f"k={k}" for k in ks_ecoli])
-        ax.set_ylabel("Lookup time [ms]")
-        ax.set_title(title)
-        ax.set_yscale("log")
-        ax.legend(fontsize=9)
-
-    fig.suptitle("Lookup time on E. coli K-12 genome", fontsize=13)
-    fig.tight_layout()
-    fig.savefig(os.path.join(args.output, "plot_lookup_ecoli.png"))
-    plt.close(fig)
-    print("Saved: plot_lookup_ecoli.png")
-else:
-    print("Skipping plot 4 — no ecoli data")
-
-# ── Plot 5: Ratio plot — ours / reference ────────────────────────────────────
+# ── Plot 4: Ratio summary (only if reference data is present) ────────────────
+#
+# Shows ours / reference for both insert time and memory, per k, with one
+# line per data source. A horizontal reference at 1.0 marks parity — below
+# means we're better (faster / smaller), above means worse.
 
 if "Bamboo" in filters and "BambooReference" in filters:
     fig, axes = plt.subplots(1, 2, figsize=(12, 5))
 
-    for ax, col, title, ylabel in zip(
-            axes,
-            ["insert_ms", "memory_bytes"],
-            ["Insert time ratio (ours / reference)",
-             "Memory ratio (ours / reference)"],
-            ["Time ratio", "Memory ratio"]):
-
+    for ax, (col, title, ylabel) in zip(axes, [
+            ("insert_ms",    "Insert time ratio",  "Time ratio (ours / reference)"),
+            ("memory_bytes", "Memory ratio",       "Memory ratio (ours / reference)")]):
         for src, marker in [("synthetic", "o"), ("ecoli", "s")]:
             data = df[df["data_source"] == src]
             mine = data[data["filter"] == "Bamboo"][["k", "seq_length", col]]
@@ -244,27 +190,23 @@ if "Bamboo" in filters and "BambooReference" in filters:
                                 suffixes=("_mine", "_ref"))
             if merged.empty:
                 continue
+            merged = merged[merged[f"{col}_ref"] > 0]      # skip bad rows
             merged["ratio"] = merged[f"{col}_mine"] / merged[f"{col}_ref"]
             grouped = merged.groupby("k")["ratio"].mean().reset_index() \
                                                   .sort_values("k")
             ax.plot(grouped["k"], grouped["ratio"],
                     marker=marker, label=src)
 
-        ax.axhline(y=1.0, linestyle=":",  color="green",  alpha=0.7,
-                   label="parity (1.0)")
-        ax.axhline(y=2.0, linestyle="--", color="orange", alpha=0.7,
-                   label="2x (−10 bod threshold)")
-        ax.axhline(y=3.0, linestyle="--", color="red",    alpha=0.7,
-                   label="3x (−15 bod threshold)")
-
+        ax.axhline(y=1.0, linestyle=":", color="gray", alpha=0.7,
+                   label="parity")
         ax.set_xlabel("k-mer size")
         ax.set_ylabel(ylabel)
         ax.set_title(title)
         ax.set_yscale("log")
-        ax.legend(fontsize=8)
+        ax.legend(fontsize=9)
 
     fig.suptitle("Performance ratio: our implementation vs Wang et al. reference",
-                 fontsize=13)
+                 fontsize=14)
     fig.tight_layout()
     fig.savefig(os.path.join(args.output, "plot_ratio.png"))
     plt.close(fig)

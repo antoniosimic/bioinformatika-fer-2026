@@ -6,8 +6,8 @@
 // and we can plot ours vs theirs side by side.
 //
 // REQUIRES Linux + x86_64 + AVX2. The reference impl uses _mm256_* SIMD
-// intrinsics and -fpermissive GCC-isms. Gated behind the
-// BUILD_REFERENCE_BENCHMARK CMake option, which fails fast off-Linux.
+// intrinsics and -fpermissive GCC-isms. Gated behind the BUILD_REFERENCE
+// CMake option (-DBUILD_REFERENCE=ON), which fails fast off-Linux.
 
 #include <algorithm>
 #include <chrono>

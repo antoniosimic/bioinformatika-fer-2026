@@ -2,7 +2,7 @@
 // Reads a .fna / .fasta file and returns the concatenated nucleotide
 // sequence as a single uppercase string. Header lines (starting with '>')
 // and whitespace are stripped automatically.
-// Author: Jakov
+// Author: Jakov Malić
 
 #pragma once
 #include <cctype>

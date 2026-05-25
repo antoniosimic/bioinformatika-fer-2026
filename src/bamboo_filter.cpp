@@ -57,10 +57,9 @@ size_t BambooFilter::SegmentIndex(uint64_t hv) const {
     // starting just above the bucket bits.
     size_t base = BaseSegments();
     size_t s = static_cast<size_t>(hv >> kBucketBits) & (base - 1);
-    // If this segment has already been split in the current round, the
-    // item belongs to either s or its buddy (s + base). Rehash with the
-    // expanded modulus to find out. (split_pointer_ is always 0 in this
-    // commit; the branch is dead code until expansion is added.)
+    // If this segment has already been split in the current doubling
+    // round (i.e. s < split_pointer_), the item belongs to either s or
+    // its buddy (s + base). Rehash with the expanded modulus to find out.
     if (s < split_pointer_) {
         s = static_cast<size_t>(hv >> kBucketBits) & ((base << 1) - 1);
     }
@@ -161,14 +160,18 @@ bool BambooFilter::Insert(const std::string& key) {
     HashTag h = Hash64(key);
     uint16_t tag = MakeTag(h.h1);
 
-    // Dedupe: as a set filter (per the Bamboo / Cuckoo Filter contract),
-    // inserting the same key twice is a no-op. We have to check before
-    // splitting because duplicate keys share the same hash → same tag →
-    // same tag bit at every level, so SplitSegment can never distribute
-    // them across the source/buddy pair. Without this guard, a stream of
-    // duplicate inserts (e.g. dup k-mers from a small alphabet) packs the
-    // same bucket until it overflows, then loops splitting forever until
-    // the level cap is hit, blowing memory to the maximum.
+    // Dedupe: inserting the same key twice is a no-op. This matches the
+    // "non-deletable cuckoo filter" semantics described by Fan et al. 2014
+    // (§6, "Limited Duplicates") and corresponds to the third duplicate-
+    // handling option listed in Fan et al. 2014 §3 ("consult that record
+    // to prevent duplicate insertion entirely").
+    //
+    // The check MUST happen before any split: duplicate keys share the
+    // same hash → same tag → same tag bit at every level, so SplitSegment
+    // can never distribute them across the source/buddy pair. Without
+    // this guard, a stream of duplicates (e.g. dup k-mers from a small
+    // alphabet) packs one bucket until it overflows, then loops splitting
+    // forever until the level cap is hit — blowing memory to the maximum.
     {
         size_t s = SegmentIndex(h.h1);
         size_t b1 = BucketIndex(h.h1);

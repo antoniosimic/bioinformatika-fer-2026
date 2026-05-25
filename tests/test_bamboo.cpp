@@ -1,5 +1,5 @@
 // Bamboo Filter tests — correctness, delete, and resize behaviour
-// Author: Jakov
+// Author: Jakov Malić
 
 #include <iostream>
 #include <string>

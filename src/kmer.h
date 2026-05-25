@@ -1,6 +1,6 @@
 // K-mer extraction and random DNA generation utilities — header-only.
 // Used by the benchmark and test programs to prepare query sets.
-// Author: Jakov
+// Author: Jakov Malić
 
 #pragma once
 #include <algorithm>

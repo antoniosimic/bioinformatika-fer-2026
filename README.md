@@ -112,18 +112,21 @@ memory_bytes, bits_per_item`
 
 ```bash
 python3 scripts/plot.py \
-  --input results/results.csv \
+  --mine results/results_mine.csv \
+  --ref  results/results_ref.csv \
   --output results/
 ```
+
+The `--ref` argument is optional — if omitted, only our results are plotted.
 
 Generates four PNG files in `results/`:
 
 | File | What it shows |
 |------|--------------|
-| `plot_insert_time.png` | Insert time [ms] vs sequence length [bp] |
-| `plot_fpr.png` | False positive rate vs k-mer size |
+| `plot_time.png`   | Insert and lookup time vs k-mer size |
+| `plot_fpr.png`    | False positive rate vs k-mer size |
 | `plot_memory.png` | Memory efficiency — bits per item |
-| `plot_lookup_ecoli.png` | Lookup time [ms] on E. coli genome |
+| `plot_ratio.png`  | Ours / reference ratio summary (when `--ref` is given) |
 
 ---
 

@@ -58,11 +58,16 @@ static void RunOne(const std::vector<std::string>& kmers,
                    size_t k, size_t seq_length,
                    const std::string& data_source,
                    std::ofstream& csv) {
+    // Pick an initial segment count tuned to dataset size. Small n: stay
+    // at the 16-segment minimum (avoid over-allocating for tiny inputs).
+    // Medium n: ~one item per 8 slots, leaving room for incremental
+    // splits. Large n: ~one item per 4 slots, denser packing so we don't
+    // waste memory on the long tail.
     BambooFilter bf([&]{
-    size_t n = kmers.size();
-    if (n < 2000)   return size_t(16);        // mali n: 16 segmenata
-    if (n < 20000)  return std::max(size_t(16), n / 512);  // srednji n: gustoća ~0.12
-    return std::max(size_t(16), n / 1024);    // veliki n: gustoća ~0.25
+        size_t n = kmers.size();
+        if (n < 2000)   return size_t(16);
+        if (n < 20000)  return std::max(size_t(16), n / 512);
+        return std::max(size_t(16), n / 1024);
     }());
 
     Timer t_ins;
