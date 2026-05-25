@@ -19,8 +19,8 @@ Filter implementation.
 ## Repository structure
 
 bioinformatika-fer-2026/
-├── src/                  C++ library (filters + utilities)
-├── tests/                Unit tests (Bloom, Cuckoo, Bamboo)
+├── src/                  C++ library (Bamboo Filter + utilities)
+├── tests/                Unit tests (Bamboo)
 ├── benchmark/            Benchmark harness + CSV output
 ├── reference/            Wang et al. reference impl wrapper (Linux only)
 ├── scripts/              Python (Matplotlib) plotting
@@ -75,12 +75,10 @@ The script is idempotent — running it again when the file already exists is a 
 ## Run tests
 
 ```bash
-./test_bloom
-./test_cuckoo
 ./test_bamboo
 ```
 
-All three should print `PASSED` for every test case.
+Should print `PASSED` for every test case.
 
 ## Run benchmark
 

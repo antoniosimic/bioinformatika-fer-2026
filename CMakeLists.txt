@@ -11,21 +11,25 @@ if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Release)
 endif()
 
+# Release-only optimization flags. -O3 is the standard high-optimisation
+# level; -march=native lets the compiler use every instruction supported by
+# the host CPU (popcnt, BMI, AVX, …); -flto enables link-time optimisation
+# so the optimiser can inline across translation units (e.g. hot helpers in
+# bamboo_filter.cpp into the benchmark loop). Binary is no longer portable
+# to older CPUs — fine for local benchmarking, would need relaxing for a
+# distributable build.
+if(CMAKE_BUILD_TYPE STREQUAL "Release")
+    add_compile_options(-O3 -march=native -flto)
+    add_link_options(-flto)
+endif()
+
 include_directories(${PROJECT_SOURCE_DIR}/src)
 
 add_library(filter_lib
     src/murmurhash3.cpp
     src/hash.cpp
-    src/bloom_filter.cpp
-    src/cuckoo_filter.cpp
     src/bamboo_filter.cpp
 )
-
-add_executable(test_bloom tests/test_bloom.cpp)
-target_link_libraries(test_bloom filter_lib)
-
-add_executable(test_cuckoo tests/test_cuckoo.cpp)
-target_link_libraries(test_cuckoo filter_lib)
 
 add_executable(test_bamboo tests/test_bamboo.cpp)
 target_link_libraries(test_bamboo filter_lib)

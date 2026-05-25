@@ -44,7 +44,7 @@ class FastaReader {
         return sequence;
     }
 
-    // Returns basic stats about the sequence without storing it
+    // Returns basic stats about the sequence
     struct Stats {
         size_t length;
         size_t count_a;

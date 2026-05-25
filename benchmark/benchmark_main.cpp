@@ -58,7 +58,12 @@ static void RunOne(const std::vector<std::string>& kmers,
                    size_t k, size_t seq_length,
                    const std::string& data_source,
                    std::ofstream& csv) {
-    BambooFilter bf(kmers.size() / 2048 < 4 ? 4 : kmers.size() / 2048);
+    BambooFilter bf([&]{
+    size_t n = kmers.size();
+    if (n < 2000)   return size_t(16);        // mali n: 16 segmenata
+    if (n < 20000)  return std::max(size_t(16), n / 512);  // srednji n: gustoća ~0.12
+    return std::max(size_t(16), n / 1024);    // veliki n: gustoća ~0.25
+    }());
 
     Timer t_ins;
     for (const auto& km : kmers) bf.Insert(km);

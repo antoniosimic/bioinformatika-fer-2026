@@ -2,10 +2,27 @@
 
 #include "bamboo_filter.h"
 
+#include <array>
+#include <cstdint>
 #include <cstdlib>
 #include <utility>
 
 #include "hash.h"
+
+namespace {
+// Fast per-thread pseudo-random generator used only in the cuckoo eviction
+// path. xorshift64 is a few XOR/shift instructions vs. std::rand()'s LCG +
+// internal state, and being thread_local it avoids any library-level
+// synchronisation. Quality is more than enough for picking a random bucket
+// / slot during eviction — we are not using it for anything cryptographic.
+inline uint64_t FastRand() {
+    thread_local uint64_t state = 0x9E3779B97F4A7C15ULL;
+    state ^= state << 13;
+    state ^= state >> 7;
+    state ^= state << 17;
+    return state;
+}
+}  // namespace
 
 constexpr uint16_t BambooFilter::kEmpty;
 
@@ -114,18 +131,29 @@ bool BambooFilter::TryInsertOnce(uint16_t tag, size_t s, size_t b1) {
     // that if the chain fails after kMaxKicks we can revert — otherwise
     // the last carried tag would be silently dropped, producing a real
     // false negative for a previously-inserted item.
-    std::vector<uint16_t> backup = segments_[s];
-    size_t b = (std::rand() & 1) ? b1 : b2;
+    //
+    // Snapshot lives on the stack (std::array, fixed at the compile-time
+    // segment capacity) to avoid a per-eviction heap alloc/free, which the
+    // old std::vector path paid every time we kicked.
+    constexpr size_t kSegmentSlots = kBucketsPerSegment * kTagsPerBucket;
+    std::array<uint16_t, kSegmentSlots> backup;
+    const auto& seg_data = segments_[s];
+    for (size_t i = 0; i < kSegmentSlots; i++) backup[i] = seg_data[i];
+
+    size_t b = (FastRand() & 1) ? b1 : b2;
     for (int n = 0; n < kMaxKicks; n++) {
         size_t base = b * kTagsPerBucket;
-        int slot = std::rand() % kTagsPerBucket;
+        // kTagsPerBucket is a power of two so we mask instead of dividing —
+        // a single AND vs. std::rand's modulo on a global state.
+        int slot = static_cast<int>(FastRand() & (kTagsPerBucket - 1));
         std::swap(tag, segments_[s][base + slot]);
         b = AltBucket(b, tag);
         if (InsertIntoBucket(s, b, tag)) {
             return true;
         }
     }
-    segments_[s] = std::move(backup);
+    auto& seg_restore = segments_[s];
+    for (size_t i = 0; i < kSegmentSlots; i++) seg_restore[i] = backup[i];
     return false;
 }
 
