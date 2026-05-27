@@ -151,11 +151,15 @@ bool BambooFilter::TryInsertOnce(uint16_t tag, size_t s, size_t b1) {
             return true;
         }
     }
+    //if eviction chain fails, revert the segment to its pre-eviction state. This preserves the integrity of the filter at the cost of a failed insertion, which is a real false negative
     auto& seg_restore = segments_[s];
     for (size_t i = 0; i < kSegmentSlots; i++) seg_restore[i] = backup[i];
     return false;
 }
 
+
+
+// Returns true if the key was successfully inserted (or already present), false if the filter is full and the key could not be inserted.
 bool BambooFilter::Insert(const std::string& key) {
     HashTag h = Hash64(key);
     uint16_t tag = MakeTag(h.h1);
@@ -206,6 +210,9 @@ bool BambooFilter::Insert(const std::string& key) {
         }
     }
 }
+
+
+// Split the segment at split_pointer_ into a buddy pair, redistributing
 
 void BambooFilter::SplitSegment() {
     // Safety: we can't split past the bits available in the tag.
