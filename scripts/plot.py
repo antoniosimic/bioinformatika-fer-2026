@@ -170,7 +170,58 @@ fig.savefig(os.path.join(args.output, "plot_memory.png"))
 plt.close(fig)
 print("Saved: plot_memory.png")
 
-# ── Plot 4: Ratio summary (only if reference data is present) ────────────────
+# ── Plot 4: Total memory in bytes ────────────────────────────────────────────
+#
+# Same panels as plot_memory.png but in absolute KB / MB instead of the
+# normalised bits-per-item — useful to see the raw footprint of the filter
+# at each k, not just how efficient it is per stored item.
+
+def fmt_kb(x, _pos):
+    """Tick label: render a KB value as '<n> KB' or '<n> MB' (no 10^x)."""
+    if x <= 0:
+        return ""
+    if x >= 1024:
+        return f"{x / 1024:g} MB"
+    return f"{x:g} KB"
+
+fig, axes = plt.subplots(1, 2, figsize=(12, 5))
+for ax, (src, title, data) in zip(axes, [
+        ("synthetic", "Synthetic DNA", synthetic),
+        ("ecoli",     "E. coli K-12 genome", ecoli)]):
+    if data.empty:
+        ax.set_title(f"{title} (no data)")
+        continue
+    for f in filters:
+        sub = data[data["filter"] == f]
+        grouped = sub.groupby("k")["memory_bytes"].mean().reset_index() \
+                                                  .sort_values("k")
+        if grouped.empty:
+            continue
+        color, label, marker = style(f)
+        # Convert bytes → KB for readability; tick formatter promotes to MB.
+        ax.plot(grouped["k"], grouped["memory_bytes"] / 1024.0,
+                marker=marker, color=color, label=label)
+    ax.set_xlabel("k-mer size")
+    ax.set_ylabel("Total memory")
+    ax.set_title(title)
+    ax.set_yscale("log")
+    # Default log axis only labels powers of 10 (sparse — for our range
+    # we'd see just "1 MB" with everything else clipped). Promote 2- and
+    # 5-subticks to major so we get readable 1, 2, 5, 10, 20, 50, …
+    # spacing across the whole range.
+    ax.yaxis.set_major_locator(
+        ticker.LogLocator(base=10.0, subs=(1.0, 2.0, 5.0), numticks=20))
+    ax.yaxis.set_major_formatter(ticker.FuncFormatter(fmt_kb))
+    ax.yaxis.set_minor_formatter(ticker.NullFormatter())
+    ax.legend(fontsize=9)
+
+fig.suptitle("Total memory used by the filter", fontsize=14)
+fig.tight_layout()
+fig.savefig(os.path.join(args.output, "plot_memory_total.png"))
+plt.close(fig)
+print("Saved: plot_memory_total.png")
+
+# ── Plot 5: Ratio summary (only if reference data is present) ────────────────
 #
 # Shows ours / reference for both insert time and memory, per k, with one
 # line per data source. A horizontal reference at 1.0 marks parity — below

@@ -10,10 +10,8 @@
 #include "hash.h"
 
 namespace {
-// Fast per-thread pseudo-random generator used only in the cuckoo eviction
-// path. xorshift64 is a few XOR/shift instructions vs. std::rand()'s LCG +
-// internal state, and being thread_local it avoids any library-level
-// synchronisation. Quality is more than enough for picking a random bucket
+// xorshift64 (Marsaglia 2003, "Xorshift RNGs", JSS Vol. 8/14) (Scientific literature, no copyright issue)
+//  Quality is more than enough for picking a random bucket
 // / slot during eviction — we are not using it for anything cryptographic.
 inline uint64_t FastRand() {
     thread_local uint64_t state = 0x9E3779B97F4A7C15ULL;

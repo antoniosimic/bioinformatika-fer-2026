@@ -123,10 +123,11 @@ Generates four PNG files in `results/`:
 
 | File | What it shows |
 |------|--------------|
-| `plot_time.png`   | Insert and lookup time vs k-mer size |
-| `plot_fpr.png`    | False positive rate vs k-mer size |
-| `plot_memory.png` | Memory efficiency — bits per item |
-| `plot_ratio.png`  | Ours / reference ratio summary (when `--ref` is given) |
+| `plot_time.png`         | Insert and lookup time vs k-mer size |
+| `plot_fpr.png`          | False positive rate vs k-mer size |
+| `plot_memory.png`       | Memory efficiency — bits per item |
+| `plot_memory_total.png` | Total memory used by the filter [KB], vs k |
+| `plot_ratio.png`        | Ours / reference ratio summary (when `--ref` is given) |
 
 ---
 
